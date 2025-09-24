@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Simulation: Vollständige Serie beim Würfeln</title>
+  <style>
+    :root{font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a}
+    body{margin:20px;background:#f8fafc}
+    .container{max-width:1000px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.08)}
+    h1{font-size:20px;margin:0 0 12px}
+    p.lead{margin:6px 0 18px;color:#475569}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    button,input,select{padding:8px 10px;border-radius:8px;border:1px solid #e6eef7;background:#fff}
+    button{cursor:pointer}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:center}
+    thead th{background:#f1f5f9}
+    .summary{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
+    .card{padding:10px;border-radius:8px;background:#fbfeff;border:1px solid #eef6fb;min-width:140px}
+    .found{display:inline-block;padding:4px 8px;border-radius:6px;margin:2px;background:#eef2ff}
+    .small{font-size:13px;color:#475569}
+    footer{margin-top:18px;font-size:13px;color:#64748b}
+    @media (max-width:600px){.controls{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Simulation: Vollständige Serie beim Würfeln</h1>
+    <p class="lead">Diese Seite simuliert Würfelwürfe, bis alle sechs Seiten (1–6) mindestens einmal gefallen sind. Alle einzelnen Würfelergebnisse werden in einer Tabelle angezeigt.</p>
+
+    <div class="controls">
+      <button id="btnSim" title="Simulieren bis alle 6 Seiten erschienen sind">Simulieren</button>
+      <button id="btnStep" title="Einen Wurf ausführen">Schritt</button>
+      <button id="btnReset" title="Zurücksetzen">Zurücksetzen</button>
+
+      <label class="small">Automatisch scrollen
+        <input id="autoScroll" type="checkbox" checked>
+      </label>
+
+      <label class="small">Mehrere Durchläufe
+        <input type="number" id="numRuns" min="1" value="1" style="width:80px;margin-left:6px">
+      </label>
+
+      <button id="btnRunMany" title="Mehrere vollständige Serien hintereinander laufen lassen">Mehrere Durchläufe</button>
+
+      <label class="small">Pause (ms)
+        <input type="number" id="stepDelay" min="0" value="0" style="width:80px;margin-left:6px">
+      </label>
+    </div>
+
+    <div class="summary">
+      <div class="card">
+        <div class="small">Aktuelle Anzahl Würfe</div>
+        <div id="totalRolls" style="font-weight:700;font-size:18px">0</div>
+      </div>
+
+      <div class="card">
+        <div class="small">Anzahl pro Seite (1–6)</div>
+        <div id="counts" style="font-weight:700;font-size:16px">0, 0, 0, 0, 0, 0</div>
+      </div>
+
+      <div class="card">
+        <div class="small">Gefundene Seiten in Reihenfolge</div>
+        <div id="foundOrder">—</div>
+      </div>
+
+      <div class="card">
+        <div class="small">Statistik (bei mehreren Durchläufen)</div>
+        <div id="multiStats">Durchschn. Würfe: —</div>
+      </div>
+    </div>
+
+    <table id="rollTable" aria-label="Würfeltabelle">
+      <thead>
+        <tr><th>#</th><th>Würfelergebnis</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <footer>
+      Hinweis: Das zugrunde liegende Zufallsverhalten verwendet <code>Math.random()</code>. Bei Bedarf kann der Code leicht erweitert werden, um einen deterministischen Pseudozufallszahlengenerator zu verwenden.</footer>
+  </div>
+
+  <script>
+    // Elemente
+    const btnSim = document.getElementById('btnSim');
+    const btnStep = document.getElementById('btnStep');
+    const btnReset = document.getElementById('btnReset');
+    const btnRunMany = document.getElementById('btnRunMany');
+    const rollTableBody = document.querySelector('#rollTable tbody');
+    const totalRollsEl = document.getElementById('totalRolls');
+    const countsEl = document.getElementById('counts');
+    const foundOrderEl = document.getElementById('foundOrder');
+    const autoScroll = document.getElementById('autoScroll');
+    const numRunsInput = document.getElementById('numRuns');
+    const stepDelayInput = document.getElementById('stepDelay');
+
+    // Zustand
+    let rolls = []; // Array mit Ergebnissen (1..6)
+    let counts = [0,0,0,0,0,0];
+    let found = new Set();
+    let foundOrder = [];
+    let running = false;
+
+    function addRoll(value){
+      rolls.push(value);
+      counts[value-1]++;
+      if(!found.has(value)){
+        found.add(value);
+        foundOrder.push({value, index: rolls.length});
+      }
+      // Tabelle aktualisieren
+      const tr = document.createElement('tr');
+      const tdIndex = document.createElement('td');
+      const tdVal = document.createElement('td');
+      tdIndex.textContent = rolls.length;
+      tdVal.textContent = value;
+      tr.appendChild(tdIndex);
+      tr.appendChild(tdVal);
+      rollTableBody.appendChild(tr);
+      updateSummary();
+      if(autoScroll.checked) tr.scrollIntoView({behavior:'auto',block:'end'});
+    }
+
+    function updateSummary(){
+      totalRollsEl.textContent = rolls.length;
+      countsEl.textContent = counts.join(', ');
+      if(foundOrder.length===0) foundOrderEl.textContent = '—';
+      else foundOrderEl.innerHTML = foundOrder.map(o => `<span class="found">${o.value} (Wurf ${o.index})</span>`).join(' ');
+    }
+
+    function reset(){
+      rolls = [];
+      counts = [0,0,0,0,0,0];
+      found = new Set();
+      foundOrder = [];
+      rollTableBody.innerHTML = '';
+      running = false;
+      updateSummary();
+      document.getElementById('multiStats').textContent = 'Durchschn. Würfe: —';
+    }
+
+    function rollDie(){
+      return Math.floor(Math.random()*6) + 1; // 1..6
+    }
+
+    async function simulateOnce({withDelay = 0, renderEach = true} = {}){
+      // Läuft bis alle 6 gefunden
+      reset();
+      while(found.size < 6){
+        const v = rollDie();
+        addRoll(v);
+        if(renderEach && withDelay>0) await new Promise(r => setTimeout(r, withDelay));
+      }
+      return rolls.length;
+    }
+
+    btnSim.addEventListener('click', async ()=>{
+      if(running) return;
+      running = true;
+      const delay = parseInt(stepDelayInput.value) || 0;
+      await simulateOnce({withDelay:delay, renderEach:true});
+      running = false;
+    });
+
+    btnStep.addEventListener('click', ()=>{
+      const v = rollDie();
+      addRoll(v);
+    });
+
+    btnReset.addEventListener('click', ()=>{
+      reset();
+    });
+
+    btnRunMany.addEventListener('click', async ()=>{
+      if(running) return;
+      const runs = Math.max(1, Math.floor(parseInt(numRunsInput.value) || 1));
+      running = true;
+      const results = [];
+      // Für mehrere Durchläufe rendern wir nur das letzte Ergebnis vollständig.
+      for(let i=0;i<runs;i++){
+        const delay = 0; // keine Delay bei Massenläufen
+        const n = await simulateOnce({withDelay:delay, renderEach:false});
+        results.push(n);
+      }
+      // Zeige letztes Ergebnis in der Tabelle (bereits von simulateOnce) und die Statistik
+      const avg = (results.reduce((a,b)=>a+b,0)/results.length).toFixed(2);
+      const min = Math.min(...results);
+      const max = Math.max(...results);
+      document.getElementById('multiStats').textContent = `Durchschn. Würfe: ${avg}  (min ${min}, max ${max}, n=${runs})`;
+      running = false;
+    });
+
+    // Initial reset
+    reset();
+  </script>
+</body>
+</html>
